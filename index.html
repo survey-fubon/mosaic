@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PDF 馬賽克遮蔽工具</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#e8ebee;--panel:#f6f7f8;--ink:#1b2430;--mute:#5b6676;--line:#c7cfd8;--acc:#1d4ed8;--accink:#fff;--stage:#d3d9e0;--warn:#b42318;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14181e;--panel:#1c222b;--ink:#e6eaf0;--mute:#9aa5b4;--line:#323b48;--acc:#6f95ff;--accink:#0c1220;--stage:#0f1318;--warn:#ff8a7a}}
+:root[data-theme="dark"]{--bg:#14181e;--panel:#1c222b;--ink:#e6eaf0;--mute:#9aa5b4;--line:#323b48;--acc:#6f95ff;--accink:#0c1220;--stage:#0f1318;--warn:#ff8a7a}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:400 15px/1.5 "Noto Sans TC",system-ui,-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;display:flex;flex-direction:column}
+.bar{background:var(--panel);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center}
+h1{font-size:16px;font-weight:700;margin:0 6px 0 0}
+.grp{display:flex;align-items:center;gap:8px}
+.grp label{color:var(--mute);font-size:13px}
+button,.btn{font:500 14px/1 inherit;font-family:inherit;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:6px;padding:8px 12px;cursor:pointer}
+button:hover:not(:disabled),.btn:hover{border-color:var(--ink)}
+button:disabled{opacity:.4;cursor:default}
+button:focus-visible,.btn:focus-within,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.pri{background:var(--acc);color:var(--accink);border-color:var(--acc)}
+.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg label{color:var(--ink);padding:7px 12px;cursor:pointer;font-size:14px}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg input:checked+span{font-weight:700}
+.seg label:has(input:checked){background:var(--acc);color:var(--accink)}
+.seg label:has(input:focus-visible){outline:2px solid var(--acc);outline-offset:-2px}
+#file{display:none}
+input[type=text]{font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 8px;width:130px}
+.grp label.chk{color:var(--ink);display:flex;gap:6px;align-items:center;cursor:pointer}
+input[type=range]{width:110px;accent-color:var(--acc)}
+.sp{flex:1}
+#stage{flex:1;min-height:0;overflow:auto;background:var(--stage);display:flex;justify-content:center;align-items:flex-start;padding:16px}
+#cv{display:none;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);cursor:crosshair;touch-action:none;max-width:100%}
+#empty{margin:auto;text-align:center;color:var(--mute);max-width:360px}
+#empty b{display:block;color:var(--ink);font-size:18px;margin-bottom:6px}
+#stage.over{outline:3px dashed var(--acc);outline-offset:-8px}
+.foot{background:var(--panel);border-top:1px solid var(--line);padding:8px 16px;font-size:13px;color:var(--mute);min-height:20px}
+.foot.err{color:var(--warn)}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>PDF 馬賽克遮蔽</h1>
+  <label class="btn" tabindex="0" id="pick">選擇 PDF<input id="file" type="file" accept="application/pdf" multiple></label>
+  <div class="grp"><div class="seg" role="radiogroup" aria-label="遮蔽方式">
+    <label><input type="radio" name="mode" value="mosaic" checked><span>馬賽克</span></label>
+    <label><input type="radio" name="mode" value="black"><span>黑色方塊</span></label></div></div>
+  <div class="grp"><label for="size">顆粒大小</label><input id="size" type="range" min="6" max="48" value="18"></div>
+  <div class="grp"><label for="pages">套用頁數</label><input id="pages" type="text" placeholder="全部 或 1-3,5" title="留空＝只套用在目前這一頁"></div>
+  <div class="grp"><button id="undo" disabled>復原</button><button id="clear" disabled>清除全部</button></div>
+  <div class="grp"><button id="save">儲存為範本</button><label class="chk"><input type="checkbox" id="auto">載入後自動匯出</label></div>
+  <div class="grp"><button id="prev" disabled>上一頁</button><span id="pn">—</span><button id="next" disabled>下一頁</button></div>
+  <span class="sp"></span>
+  <button id="exp" class="pri" disabled>匯出 PDF</button>
+  <button id="again" class="pri" hidden>儲存已處理的 PDF</button>
+  <a id="dlink" class="btn" style="text-decoration:none;color:var(--ink)" hidden>點此下載</a>
+</div>
+<div id="stage">
+  <div id="empty"><b>拖曳 PDF 到這裡</b>或按上方「選擇 PDF」。檔案只在你的瀏覽器內處理，不會上傳。</div>
+  <canvas id="cv" aria-label="PDF 頁面預覽，拖曳框選要遮蔽的區域"></canvas>
+</div>
+<div class="foot" id="msg">載入 PDF 後，在頁面上拖曳框選區域。先在「套用頁數」填入頁碼（例如 1-3,5 或「全部」；留空＝只有目前這頁）再框選。設定好後按「儲存為範本」，下次直接丟檔案即可。</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const cv=$('cv'),ctx=cv.getContext('2d');
+let pdf=null,pg=1,N=0,base=null,rects=[],drag=null,fname='document',tok=0,busy=false,dl=null;
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+try{window.claude.use('downloads').then(d=>{dl=d}).catch(()=>{})}catch(e){}
+
+const mode=()=>document.querySelector('input[name=mode]:checked').value;
+const say=(t,err)=>{$('msg').textContent=t;$('msg').className='foot'+(err?' err':'')};
+
+async function renderPage(n,scale){
+  const p=await pdf.getPage(n),vp=p.getViewport({scale}),c=document.createElement('canvas');
+  c.width=Math.floor(vp.width);c.height=Math.floor(vp.height);
+  await p.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;return c;
+}
+async function open(file){
+  try{
+    say('讀取中…');
+    pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+    N=pdf.numPages;pg=1;fname=file.name.replace(/\.pdf$/i,'');
+    $('empty').style.display='none';cv.style.display='block';
+    await show();say('在頁面上拖曳框選要遮蔽的區域。完成後按「匯出 PDF」。');return true;
+  }catch(e){say('無法開啟這個檔案，請確認它是未加密的 PDF。',true);return false}
+}
+async function show(){
+  const t=++tok,p=await pdf.getPage(pg),w1=p.getViewport({scale:1}).width;
+  const dpr=Math.min(window.devicePixelRatio||1,2),avail=Math.min($('stage').clientWidth-32,900);
+  const b=await renderPage(pg,avail/w1*dpr);
+  if(t!==tok)return;
+  base=b;cv.width=b.width;cv.height=b.height;cv.style.width=(b.width/dpr)+'px';cv.dataset.dpr=dpr;
+  draw();ui();
+}
+function apply(c,W,H,r){
+  const x=Math.round(r.x*W),y=Math.round(r.y*H),w=Math.min(Math.round(r.w*W),W-x),h=Math.min(Math.round(r.h*H),H-y);
+  if(w<1||h<1)return;
+  if(mode()==='black'){c.fillStyle='#000';c.fillRect(x,y,w,h);return}
+  const b=Math.max(2,Math.round($('size').value*W/900)),d=c.getImageData(x,y,w,h),a=d.data;
+  for(let by=0;by<h;by+=b)for(let bx=0;bx<w;bx+=b){
+    const ye=Math.min(by+b,h),xe=Math.min(bx+b,w);let R=0,G=0,B=0,n=0;
+    for(let j=by;j<ye;j++)for(let i=bx;i<xe;i++){const k=(j*w+i)*4;R+=a[k];G+=a[k+1];B+=a[k+2];n++}
+    R=R/n;G=G/n;B=B/n;
+    for(let j=by;j<ye;j++)for(let i=bx;i<xe;i++){const k=(j*w+i)*4;a[k]=R;a[k+1]=G;a[k+2]=B}
+  }
+  c.putImageData(d,x,y);
+}
+function draw(){
+  if(!base)return;
+  ctx.drawImage(base,0,0);
+  rects.filter(r=>hit(r,pg)).forEach(r=>apply(ctx,cv.width,cv.height,r));
+  if(drag){
+    const dpr=+cv.dataset.dpr||1,x=Math.min(drag.x0,drag.x1)*cv.width,y=Math.min(drag.y0,drag.y1)*cv.height,
+      w=Math.abs(drag.x1-drag.x0)*cv.width,h=Math.abs(drag.y1-drag.y0)*cv.height;
+    ctx.save();ctx.strokeStyle='#1d4ed8';ctx.lineWidth=2*dpr;ctx.setLineDash([6*dpr,4*dpr]);ctx.strokeRect(x,y,w,h);ctx.restore();
+  }
+}
+function ui(){
+  const n=rects.length;
+  $('pn').textContent=pdf?`第 ${pg} / ${N} 頁`:'—';
+  $('prev').disabled=!pdf||pg<=1||busy;$('next').disabled=!pdf||pg>=N||busy;
+  $('undo').disabled=!n||busy;$('clear').disabled=!n||busy;$('exp').disabled=!pdf||busy;
+}
+const pt=e=>{const r=cv.getBoundingClientRect();return{x:Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),y:Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))}};
+cv.addEventListener('pointerdown',e=>{if(!pdf||busy)return;cv.setPointerCapture(e.pointerId);const p=pt(e);drag={x0:p.x,y0:p.y,x1:p.x,y1:p.y}});
+cv.addEventListener('pointermove',e=>{if(!drag)return;const p=pt(e);drag.x1=p.x;drag.y1=p.y;draw()});
+cv.addEventListener('pointerup',()=>{
+  if(!drag)return;
+  const r={x:Math.min(drag.x0,drag.x1),y:Math.min(drag.y0,drag.y1),w:Math.abs(drag.x1-drag.x0),h:Math.abs(drag.y1-drag.y0)};
+  drag=null;if(r.w>.005&&r.h>.005){r.pages=$('pages').value.trim()||String(pg);rects.push(r)}
+  draw();ui();
+});
+const undo=()=>{if(rects.length){rects.pop();draw();ui()}};
+$('undo').onclick=undo;
+$('clear').onclick=()=>{rects=[];try{localStorage.removeItem(KEY)}catch(e){}draw();ui();say('已清除所有遮蔽區與已儲存的範本。')};
+$('prev').onclick=()=>{pg--;show()};$('next').onclick=()=>{pg++;show()};
+$('size').oninput=draw;
+document.querySelectorAll('input[name=mode]').forEach(i=>i.onchange=draw);
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();undo()}});
+$('file').onchange=e=>{handle(e.target.files);e.target.value=''};
+$('pick').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('file').click()}};
+const st=$('stage');
+st.ondragover=e=>{e.preventDefault();st.classList.add('over')};
+st.ondragleave=()=>st.classList.remove('over');
+st.ondrop=e=>{e.preventDefault();st.classList.remove('over');handle(e.dataTransfer.files)};
+window.addEventListener('resize',()=>{if(pdf&&!busy)show()});
+
+async function doExport(){
+  if(!pdf||busy)return;
+  busy=true;ui();$('again').hidden=true;$('dlink').hidden=true;ready=null;
+  try{
+    let doc=null;
+    for(let i=1;i<=N;i++){
+      say(`處理中：第 ${i} / ${N} 頁…`);
+      const p=await pdf.getPage(i),v=p.getViewport({scale:1}),c=await renderPage(i,2);
+      const cx=c.getContext('2d');rects.filter(r=>hit(r,i)).forEach(r=>apply(cx,c.width,c.height,r));
+      const o=v.width>v.height?'l':'p';
+      if(!doc)doc=new jspdf.jsPDF({unit:'pt',format:[v.width,v.height],orientation:o});else doc.addPage([v.width,v.height],o);
+      doc.addImage(c.toDataURL('image/jpeg',.92),'JPEG',0,0,v.width,v.height);
+      c.width=c.height=0;
+    }
+    ready={name:fname+'-masked.pdf',blob:doc.output('blob')};
+    say('處理完成，正在儲存…');
+    try{const r=await deliver(ready.name,ready.blob);say(FB);$('again').hidden=false}
+    catch(e){$('again').hidden=false;say((e&&e.code==='declined'?'已取消儲存。':'自動儲存失敗（'+((e&&(e.code||e.message))||e)+'）。')+'請按上方「儲存已處理的 PDF」。',!(e&&e.code==='declined'))}
+  }catch(e){console.error(e);say(e&&e.code==='declined'?'已取消儲存。':'匯出失敗：'+((e&&(e.code||e.message))||e),!(e&&e.code==='declined'))}
+  busy=false;ui();
+}
+let ready=null;
+async function deliver(name,blob){
+  const u=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  const L=$('dlink');L.href=u;L.download=name;L.hidden=false;
+  return 'fb';
+}
+const FB='已開始用瀏覽器下載。如果沒有出現檔案，請按上方「點此下載」，並檢查瀏覽器是否阻擋了下載。';
+$('again').onclick=async()=>{
+  if(!ready)return;
+  try{const r=await deliver(ready.name,ready.blob);say(r==='fb'?FB:'已匯出。');$('again').hidden=r==='ok'}
+  catch(e){say(e&&e.code==='declined'?'已取消儲存。':'儲存失敗：'+((e&&(e.code||e.message))||e),!(e&&e.code==='declined'))}
+};
+$('exp').onclick=doExport;
+
+function hit(r,n){
+  const s=(r.pages||'').replace(/\s/g,'');
+  if(!s||/^(all|全部)$/i.test(s))return true;
+  return s.split(/[,，、]/).some(t=>{const m=t.match(/^(\d+)(?:[-~–](\d+))?$/);return m&&n>=+m[1]&&n<=+(m[2]||m[1])});
+}
+async function handle(files){
+  files=[...files].filter(f=>/pdf$/i.test(f.type||f.name));
+  if(!files.length){say('請放入 PDF 檔案。',true);return}
+  const auto=$('auto').checked&&rects.length>0;
+  for(const f of (auto?files:[files[0]])){
+    if(!await open(f))break;
+    if(auto)await doExport();
+  }
+}
+const KEY='pdfmosaic:tpl';
+function saveTpl(){
+  try{localStorage.setItem(KEY,JSON.stringify({rects,mode:mode(),size:$('size').value,auto:$('auto').checked}));say('已儲存範本（'+rects.length+' 個遮蔽區）。下次開啟會自動載入。')}
+  catch(e){say('此環境無法儲存範本。',true)}
+}
+function loadTpl(){
+  try{
+    const t=JSON.parse(localStorage.getItem(KEY));if(!t||!Array.isArray(t.rects))return;
+    rects=t.rects;$('size').value=t.size;
+    const m=document.querySelector('input[name=mode][value="'+t.mode+'"]');if(m)m.checked=true;
+    $('auto').checked=!!t.auto;ui();
+    say('已載入範本（'+rects.length+' 個遮蔽區）。丟入 PDF 即可套用'+(t.auto?'並自動匯出':'，確認後按「匯出 PDF」')+'。');
+  }catch(e){}
+}
+$('save').onclick=saveTpl;
+loadTpl();
+</script>
+</body>
+</html>
