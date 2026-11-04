@@ -50,6 +50,7 @@ input[type=range]{width:110px;accent-color:var(--acc)}
     <label><input type="radio" name="mode" value="mosaic" checked><span>馬賽克</span></label>
     <label><input type="radio" name="mode" value="black"><span>黑色方塊</span></label></div></div>
   <div class="grp"><label for="size">顆粒大小</label><input id="size" type="range" min="6" max="48" value="18"></div>
+  <div class="grp"><label for="q">畫質</label><select id="q" style="font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 6px"><option value="1">小檔</option><option value="2" selected>標準</option><option value="3">高畫質</option></select></div>
   <div class="grp"><label for="pages">套用頁數</label><input id="pages" type="text" placeholder="全部 或 1-3,5" title="留空＝只套用在目前這一頁"></div>
   <div class="grp"><button id="undo" disabled>復原</button><button id="clear" disabled>清除全部</button></div>
   <div class="grp"><button id="save">儲存為範本</button><label class="chk"><input type="checkbox" id="auto">載入後自動匯出</label></div>
@@ -66,11 +67,11 @@ input[type=range]{width:110px;accent-color:var(--acc)}
 <div class="foot" id="msg">載入 PDF 後，在頁面上拖曳框選區域。先在「套用頁數」填入頁碼（例如 1-3,5 或「全部」；留空＝只有目前這頁）再框選。設定好後按「儲存為範本」，下次直接丟檔案即可。</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d');
-let pdf=null,pg=1,N=0,base=null,rects=[],drag=null,fname='document',tok=0,busy=false,dl=null;
+let pdf=null,pg=1,N=0,base=null,rects=[],drag=null,fname='document',tok=0,busy=false,dl=null,srcBuf=null;
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 try{window.claude.use('downloads').then(d=>{dl=d}).catch(()=>{})}catch(e){}
 
@@ -85,7 +86,7 @@ async function renderPage(n,scale){
 async function open(file){
   try{
     say('讀取中…');
-    pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+    const buf=await file.arrayBuffer();srcBuf=buf.slice(0);pdf=await pdfjsLib.getDocument({data:buf}).promise;
     N=pdf.numPages;pg=1;fname=file.name.replace(/\.pdf$/i,'');
     $('empty').style.display='none';cv.style.display='block';
     await show();say('在頁面上拖曳框選要遮蔽的區域。完成後按「匯出 PDF」。');return true;
@@ -156,18 +157,27 @@ async function doExport(){
   if(!pdf||busy)return;
   busy=true;ui();$('again').hidden=true;$('dlink').hidden=true;ready=null;
   try{
-    let doc=null;
+    const {PDFDocument}=PDFLib,Q={1:{s:1,q:.6},2:{s:1.5,q:.75},3:{s:2,q:.9}}[$('q').value];
+    const src=await PDFDocument.load(srcBuf,{ignoreEncryption:true,updateMetadata:false});
+    const masked=[],keep=[];
+    for(let i=1;i<=N;i++)(rects.some(r=>hit(r,i))?masked:keep).push(i);
+    const out=await PDFDocument.create();
+    const kept=keep.length?await out.copyPages(src,keep.map(i=>i-1)):[];
+    const kmap={};keep.forEach((i,k)=>kmap[i]=kept[k]);
     for(let i=1;i<=N;i++){
+      if(kmap[i]){out.addPage(kmap[i]);continue}
       say(`處理中：第 ${i} / ${N} 頁…`);
-      const p=await pdf.getPage(i),v=p.getViewport({scale:1}),c=await renderPage(i,2);
+      const p=await pdf.getPage(i),v=p.getViewport({scale:1}),c=await renderPage(i,Q.s);
       const cx=c.getContext('2d');rects.filter(r=>hit(r,i)).forEach(r=>apply(cx,c.width,c.height,r));
-      const o=v.width>v.height?'l':'p';
-      if(!doc)doc=new jspdf.jsPDF({unit:'pt',format:[v.width,v.height],orientation:o});else doc.addPage([v.width,v.height],o);
-      doc.addImage(c.toDataURL('image/jpeg',.92),'JPEG',0,0,v.width,v.height);
+      const jb=await new Promise(res=>c.toBlob(res,'image/jpeg',Q.q));
+      const img=await out.embedJpg(await jb.arrayBuffer());
+      const pgx=out.addPage([v.width,v.height]);pgx.drawImage(img,{x:0,y:0,width:v.width,height:v.height});
       c.width=c.height=0;
     }
+    const bytes=await out.save({useObjectStreams:true});
+    const doc={output:()=>new Blob([bytes],{type:'application/pdf'})};
     ready={name:fname+'-masked.pdf',blob:doc.output('blob')};
-    say('處理完成，正在儲存…');
+    say('處理完成（'+(bytes.length/1048576).toFixed(2)+' MB），正在儲存…');
     try{const r=await deliver(ready.name,ready.blob);say(FB);$('again').hidden=false}
     catch(e){$('again').hidden=false;say((e&&e.code==='declined'?'已取消儲存。':'自動儲存失敗（'+((e&&(e.code||e.message))||e)+'）。')+'請按上方「儲存已處理的 PDF」。',!(e&&e.code==='declined'))}
   }catch(e){console.error(e);say(e&&e.code==='declined'?'已取消儲存。':'匯出失敗：'+((e&&(e.code||e.message))||e),!(e&&e.code==='declined'))}
@@ -204,13 +214,13 @@ async function handle(files){
 }
 const KEY='pdfmosaic:tpl';
 function saveTpl(){
-  try{localStorage.setItem(KEY,JSON.stringify({rects,mode:mode(),size:$('size').value,auto:$('auto').checked}));say('已儲存範本（'+rects.length+' 個遮蔽區）。下次開啟會自動載入。')}
+  try{localStorage.setItem(KEY,JSON.stringify({rects,mode:mode(),size:$('size').value,q:$('q').value,auto:$('auto').checked}));say('已儲存範本（'+rects.length+' 個遮蔽區）。下次開啟會自動載入。')}
   catch(e){say('此環境無法儲存範本。',true)}
 }
 function loadTpl(){
   try{
     const t=JSON.parse(localStorage.getItem(KEY));if(!t||!Array.isArray(t.rects))return;
-    rects=t.rects;$('size').value=t.size;
+    rects=t.rects;$('size').value=t.size;if(t.q)$('q').value=t.q;
     const m=document.querySelector('input[name=mode][value="'+t.mode+'"]');if(m)m.checked=true;
     $('auto').checked=!!t.auto;ui();
     say('已載入範本（'+rects.length+' 個遮蔽區）。丟入 PDF 即可套用'+(t.auto?'並自動匯出':'，確認後按「匯出 PDF」')+'。');
