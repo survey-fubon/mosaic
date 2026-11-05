@@ -50,7 +50,8 @@ input[type=range]{width:110px;accent-color:var(--acc)}
     <label><input type="radio" name="mode" value="mosaic" checked><span>馬賽克</span></label>
     <label><input type="radio" name="mode" value="black"><span>黑色方塊</span></label></div></div>
   <div class="grp"><label for="size">顆粒大小</label><input id="size" type="range" min="6" max="48" value="18"></div>
-  <div class="grp"><label for="lim">大小上限</label><select id="lim" style="font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 6px"><option value="0">不限</option><option value="500">500 KB</option><option value="850" selected>850 KB</option><option value="1024">1 MB</option><option value="2048">2 MB</option><option value="5120">5 MB</option></select></div>
+  <div class="grp"><label for="lim">大小上限</label><select id="lim" style="font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 6px"><option value="-1">盡量最小</option><option value="0">不限</option><option value="500">500 KB</option><option value="850" selected>850 KB</option><option value="1024">1 MB</option><option value="2048">2 MB</option><option value="5120">5 MB</option></select></div>
+  <div class="grp"><label class="chk" title="所有頁面都轉成圖片並壓縮，包含沒有遮蔽的頁面（文字將無法選取）"><input type="checkbox" id="all">先壓縮整份文件</label></div>
   <div class="grp"><label for="q">起始畫質</label><select id="q" style="font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 6px"><option value="1">小檔</option><option value="2" selected>標準</option><option value="3">高畫質</option></select></div>
   <div class="grp"><label for="pages">套用頁數</label><input id="pages" type="text" placeholder="全部 或 1-3,5" title="留空＝只套用在目前這一頁"></div>
   <div class="grp"><button id="undo" disabled>復原</button><button id="clear" disabled>清除全部</button></div>
@@ -159,12 +160,13 @@ async function doExport(){
   busy=true;ui();$('again').hidden=true;$('dlink').hidden=true;ready=null;
   try{
     const {PDFDocument}=PDFLib;
-    const LAD=[{s:2,q:.85},{s:1.75,q:.75},{s:1.5,q:.65},{s:1.5,q:.5},{s:1.25,q:.5},{s:1.25,q:.4}];
-    let li={1:4,2:2,3:0}[$('q').value];const li0=li;
-    const lim=+$('lim').value*1024;
+    const LAD=[{s:2,q:.85},{s:1.75,q:.75},{s:1.5,q:.65},{s:1.5,q:.5},{s:1.25,q:.5},{s:1.25,q:.4},{s:1,q:.35},{s:.8,q:.3}];
+    let li={1:4,2:2,3:0}[$('q').value];
+    const limV=+$('lim').value,minMode=limV<0,lim=limV>0?limV*1024:0,allr=$('all').checked;
+    if(minMode)li=LAD.length-1;const li0=li;
     const src=await PDFDocument.load(srcBuf,{ignoreEncryption:true,updateMetadata:false});
     const keep=[];
-    for(let i=1;i<=N;i++)if(!rects.some(r=>hit(r,i)))keep.push(i);
+    for(let i=1;i<=N;i++)if(!allr&&!rects.some(r=>hit(r,i)))keep.push(i);
     let baseB=0;
     if(keep.length){const t=await PDFDocument.create();for(const pp of await t.copyPages(src,keep.map(i=>i-1)))t.addPage(pp);baseB=(await t.save({useObjectStreams:true})).length}
     const hopeless=lim&&baseB>=lim;
@@ -184,13 +186,13 @@ async function doExport(){
         c.width=c.height=0;
       }
       bytes=await out.save({useObjectStreams:true});
-      if(!lim||bytes.length<=lim||li>=LAD.length-1||keep.length===N||hopeless)break;
+      if(!lim||bytes.length<=lim||li>=5||keep.length===N||hopeless)break;
       li++;
     }
     const over=lim&&bytes.length>lim;
     const doc={output:()=>new Blob([bytes],{type:'application/pdf'})};
     ready={name:fname+'-masked.pdf',blob:doc.output('blob')};
-    say('處理完成（共 '+Math.round(bytes.length/1024)+' KB'+(keep.length?'，其中未遮蔽的頁面約 '+Math.round(baseB/1024)+' KB':'')+'）'+(over?(hopeless?'。未遮蔽的頁面原本就超過上限，所以遮蔽頁保持較清晰的畫質；要更小需先壓縮原檔':'。已降到最低畫質仍超過上限'):'')+'，正在儲存…',over);
+    say('處理完成（原檔 '+Math.round(srcBuf.byteLength/1024)+' KB → 共 '+Math.round(bytes.length/1024)+' KB'+(keep.length?'，其中未遮蔽的頁面約 '+Math.round(baseB/1024)+' KB':'')+'）'+(over?(hopeless?'。未遮蔽的頁面原本就超過上限，所以遮蔽頁保持較清晰的畫質；要更小需先壓縮原檔':'。已降到最低畫質仍超過上限'):'')+'，正在儲存…',over);
     try{const r=await deliver(ready.name,ready.blob);say(FB);$('again').hidden=false}
     catch(e){$('again').hidden=false;say((e&&e.code==='declined'?'已取消儲存。':'自動儲存失敗（'+((e&&(e.code||e.message))||e)+'）。')+'請按上方「儲存已處理的 PDF」。',!(e&&e.code==='declined'))}
   }catch(e){console.error(e);say(e&&e.code==='declined'?'已取消儲存。':'匯出失敗：'+((e&&(e.code||e.message))||e),!(e&&e.code==='declined'))}
@@ -227,13 +229,13 @@ async function handle(files){
 }
 const KEY='pdfmosaic:tpl';
 function saveTpl(){
-  try{localStorage.setItem(KEY,JSON.stringify({rects,mode:mode(),size:$('size').value,q:$('q').value,lim:$('lim').value,auto:$('auto').checked}));say('已儲存範本（'+rects.length+' 個遮蔽區）。下次開啟會自動載入。')}
+  try{localStorage.setItem(KEY,JSON.stringify({rects,mode:mode(),size:$('size').value,q:$('q').value,all:$('all').checked,lim:$('lim').value,auto:$('auto').checked}));say('已儲存範本（'+rects.length+' 個遮蔽區）。下次開啟會自動載入。')}
   catch(e){say('此環境無法儲存範本。',true)}
 }
 function loadTpl(){
   try{
     const t=JSON.parse(localStorage.getItem(KEY));if(!t||!Array.isArray(t.rects))return;
-    rects=t.rects;$('size').value=t.size;if(t.q)$('q').value=t.q;if(t.lim!=null){const L=t.lim>0&&t.lim<10?t.lim*1024:t.lim;$('lim').value=L;if($('lim').value!==String(L))$('lim').value='850'}
+    rects=t.rects;$('size').value=t.size;if(t.q)$('q').value=t.q;$('all').checked=!!t.all;if(t.lim!=null){const L=t.lim>0&&t.lim<10?t.lim*1024:t.lim;$('lim').value=L;if($('lim').value!==String(L))$('lim').value='850'}
     const m=document.querySelector('input[name=mode][value="'+t.mode+'"]');if(m)m.checked=true;
     $('auto').checked=!!t.auto;ui();
     say('已載入範本（'+rects.length+' 個遮蔽區）。丟入 PDF 即可套用'+(t.auto?'並自動匯出':'，確認後按「匯出 PDF」')+'。');
