@@ -50,7 +50,7 @@ input[type=range]{width:110px;accent-color:var(--acc)}
     <label><input type="radio" name="mode" value="mosaic" checked><span>馬賽克</span></label>
     <label><input type="radio" name="mode" value="black"><span>黑色方塊</span></label></div></div>
   <div class="grp"><label for="size">顆粒大小</label><input id="size" type="range" min="6" max="48" value="18"></div>
-  <div class="grp"><label for="lim">大小上限</label><select id="lim" style="font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 6px"><option value="0">不限</option><option value="850" selected>850 KB</option><option value="1024">1 MB</option><option value="2048">2 MB</option><option value="5120">5 MB</option></select></div>
+  <div class="grp"><label for="lim">大小上限</label><select id="lim" style="font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 6px"><option value="0">不限</option><option value="500">500 KB</option><option value="850" selected>850 KB</option><option value="1024">1 MB</option><option value="2048">2 MB</option><option value="5120">5 MB</option></select></div>
   <div class="grp"><label for="q">起始畫質</label><select id="q" style="font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 6px"><option value="1">小檔</option><option value="2" selected>標準</option><option value="3">高畫質</option></select></div>
   <div class="grp"><label for="pages">套用頁數</label><input id="pages" type="text" placeholder="全部 或 1-3,5" title="留空＝只套用在目前這一頁"></div>
   <div class="grp"><button id="undo" disabled>復原</button><button id="clear" disabled>清除全部</button></div>
@@ -159,7 +159,7 @@ async function doExport(){
   busy=true;ui();$('again').hidden=true;$('dlink').hidden=true;ready=null;
   try{
     const {PDFDocument}=PDFLib;
-    const LAD=[{s:2,q:.9},{s:1.5,q:.75},{s:1.2,q:.65},{s:1,q:.55},{s:.8,q:.45},{s:.65,q:.4}];
+    const LAD=[{s:2,q:.9},{s:1.5,q:.75},{s:1.2,q:.65},{s:1,q:.55},{s:.8,q:.45},{s:.65,q:.4},{s:.5,q:.3}];
     let li={1:3,2:1,3:0}[$('q').value];
     const lim=+$('lim').value*1024;
     const src=await PDFDocument.load(srcBuf,{ignoreEncryption:true,updateMetadata:false});
