@@ -40,22 +40,25 @@ input[type=range]{width:110px;accent-color:var(--acc)}
 #stage.over{outline:3px dashed var(--acc);outline-offset:-8px}
 .foot{background:var(--panel);border-top:1px solid var(--line);padding:8px 16px;font-size:13px;color:var(--mute);min-height:20px}
 .foot.err{color:var(--warn)}
+.tag{font-size:13px;color:var(--mute)}
+.tag.edit{color:var(--warn);font-weight:700}
 </style>
 </head>
 <body>
 <div class="bar">
   <h1>PDF 馬賽克遮蔽</h1>
+  <div class="grp"><div class="seg" role="radiogroup" aria-label="文件類型"><label><input type="radio" name="sess" value="pre" checked><span>盤前（市場快訊）</span></label><label><input type="radio" name="sess" value="post"><span>盤後（盤後快訊）</span></label></div><span id="sinfo" class="tag"></span></div>
   <label class="btn" tabindex="0" id="pick">選擇 PDF<input id="file" type="file" accept="application/pdf" multiple></label>
   <div class="grp"><div class="seg" role="radiogroup" aria-label="遮蔽方式">
     <label><input type="radio" name="mode" value="mosaic" checked><span>馬賽克</span></label>
     <label><input type="radio" name="mode" value="black"><span>黑色方塊</span></label></div></div>
   <div class="grp"><label for="size">顆粒大小</label><input id="size" type="range" min="6" max="48" value="18"></div>
-  <div class="grp"><label for="lim">大小上限</label><select id="lim" style="font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 6px"><option value="-1">盡量最小</option><option value="0">不限</option><option value="500">500 KB</option><option value="850" selected>850 KB</option><option value="1024">1 MB</option><option value="2048">2 MB</option><option value="5120">5 MB</option></select></div>
+  <div class="grp"><label for="lim">大小上限</label><select id="lim" style="font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 6px"><option value="-1">盡量最小</option><option value="0">不限</option><option value="500">500 KB</option><option value="800" selected>800 KB</option><option value="850">850 KB</option><option value="1024">1 MB</option><option value="2048">2 MB</option><option value="5120">5 MB</option></select></div>
   <div class="grp"><label class="chk" title="所有頁面都轉成圖片並壓縮，包含沒有遮蔽的頁面（文字將無法選取）"><input type="checkbox" id="all">先壓縮整份文件</label></div>
   <div class="grp"><label for="q">起始畫質</label><select id="q" style="font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 6px"><option value="1">小檔</option><option value="2" selected>標準</option><option value="3">高畫質</option></select></div>
   <div class="grp"><label for="pages">套用頁數</label><input id="pages" type="text" placeholder="全部 或 1-3,5" title="留空＝只套用在目前這一頁"></div>
   <div class="grp"><button id="undo" disabled>復原</button><button id="clear" disabled>清除全部</button></div>
-  <div class="grp"><button id="save">儲存為範本</button><label class="chk"><input type="checkbox" id="auto">載入後自動匯出</label></div>
+  <div class="grp"><button id="edit">編輯範本</button><button id="save" class="pri" hidden>儲存範本</button><button id="cancel" hidden>取消編輯</button><label class="chk" title="依檔名判斷盤前／盤後，載入後直接套用範本並匯出"><input type="checkbox" id="auto">載入後自動匯出</label></div>
   <div class="grp"><button id="prev" disabled>上一頁</button><span id="pn">—</span><button id="next" disabled>下一頁</button></div>
   <span class="sp"></span>
   <button id="exp" class="pri" disabled>匯出 PDF</button>
@@ -66,14 +69,14 @@ input[type=range]{width:110px;accent-color:var(--acc)}
   <div id="empty"><b>拖曳 PDF 到這裡</b>或按上方「選擇 PDF」。檔案只在你的瀏覽器內處理，不會上傳。</div>
   <canvas id="cv" aria-label="PDF 頁面預覽，拖曳框選要遮蔽的區域"></canvas>
 </div>
-<div class="foot" id="msg">載入 PDF 後，在頁面上拖曳框選區域。先在「套用頁數」填入頁碼（例如 1-3,5 或「全部」；留空＝只有目前這頁）再框選。設定好後按「儲存為範本」，下次直接丟檔案即可。</div>
+<div class="foot" id="msg">載入 PDF 後，在頁面上拖曳框選區域。先在「套用頁數」填入頁碼（例如 1-3,5 或「全部」；留空＝只有目前這頁）再框選。設定好後按「儲存範本」，範本會鎖定；下次直接丟檔案，會依檔名（市場快訊＝盤前、盤後快訊＝盤後）自動套用對應範本。</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d');
-let pdf=null,pg=1,N=0,base=null,rects=[],drag=null,fname='document',tok=0,busy=false,dl=null,srcBuf=null;
+let pdf=null,pg=1,N=0,base=null,rects=[],sess='pre',editing=true,drag=null,fname='document',tok=0,busy=false,dl=null,srcBuf=null;
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 try{window.claude.use('downloads').then(d=>{dl=d}).catch(()=>{})}catch(e){}
 
@@ -85,13 +88,13 @@ async function renderPage(n,scale){
   c.width=Math.floor(vp.width);c.height=Math.floor(vp.height);
   await p.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;return c;
 }
-async function open(file){
+async function open(file,note){
   try{
     say('讀取中…');
     const buf=await file.arrayBuffer();srcBuf=buf.slice(0);pdf=await pdfjsLib.getDocument({data:buf}).promise;
     N=pdf.numPages;pg=1;fname=file.name.replace(/\.pdf$/i,'');
     $('empty').style.display='none';cv.style.display='block';
-    await show();say('在頁面上拖曳框選要遮蔽的區域。完成後按「匯出 PDF」。');return true;
+    await show();say((note||'')+(editing?'在頁面上拖曳框選要遮蔽的區域。完成後按「儲存範本」或「匯出 PDF」。':'已套用「'+SN[sess]+'」範本，確認後按「匯出 PDF」。'));return true;
   }catch(e){say('無法開啟這個檔案，請確認它是未加密的 PDF。',true);return false}
 }
 async function show(){
@@ -129,10 +132,13 @@ function ui(){
   const n=rects.length;
   $('pn').textContent=pdf?`第 ${pg} / ${N} 頁`:'—';
   $('prev').disabled=!pdf||pg<=1||busy;$('next').disabled=!pdf||pg>=N||busy;
-  $('undo').disabled=!n||busy;$('clear').disabled=!n||busy;$('exp').disabled=!pdf||busy;
+  $('undo').disabled=!n||busy||!editing;$('clear').disabled=!n||busy||!editing;$('exp').disabled=!pdf||busy;
+  $('edit').hidden=editing;$('save').hidden=!editing;$('cancel').hidden=!editing;$('edit').disabled=busy;
+  $('pages').disabled=!editing;cv.style.cursor=editing?'crosshair':'default';
+  const si=$('sinfo');si.className='tag'+(editing?' edit':'');si.textContent='【'+SN[sess]+'】'+(editing?'編輯中':'已鎖定')+'・'+n+' 個遮蔽區'+(editing&&dirty()?'（未儲存）':'');
 }
 const pt=e=>{const r=cv.getBoundingClientRect();return{x:Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),y:Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))}};
-cv.addEventListener('pointerdown',e=>{if(!pdf||busy)return;cv.setPointerCapture(e.pointerId);const p=pt(e);drag={x0:p.x,y0:p.y,x1:p.x,y1:p.y}});
+cv.addEventListener('pointerdown',e=>{if(!pdf||busy||!editing)return;cv.setPointerCapture(e.pointerId);const p=pt(e);drag={x0:p.x,y0:p.y,x1:p.x,y1:p.y}});
 cv.addEventListener('pointermove',e=>{if(!drag)return;const p=pt(e);drag.x1=p.x;drag.y1=p.y;draw()});
 cv.addEventListener('pointerup',()=>{
   if(!drag)return;
@@ -142,7 +148,7 @@ cv.addEventListener('pointerup',()=>{
 });
 const undo=()=>{if(rects.length){rects.pop();draw();ui()}};
 $('undo').onclick=undo;
-$('clear').onclick=()=>{rects=[];try{localStorage.removeItem(KEY)}catch(e){}draw();ui();say('已清除所有遮蔽區與已儲存的範本。')};
+$('clear').onclick=()=>{rects=[];draw();ui();say('已清空編輯中的遮蔽區。按「儲存範本」才會覆蓋已儲存的範本。')};
 $('prev').onclick=()=>{pg--;show()};$('next').onclick=()=>{pg++;show()};
 $('size').oninput=draw;
 document.querySelectorAll('input[name=mode]').forEach(i=>i.onchange=draw);
@@ -186,13 +192,13 @@ async function doExport(){
         c.width=c.height=0;
       }
       bytes=await out.save({useObjectStreams:true});
-      if(!lim||bytes.length<=lim||li>=5||keep.length===N||hopeless)break;
+      if(!lim||bytes.length<=lim||li>=LAD.length-1||keep.length===N||hopeless)break;
       li++;
     }
     const over=lim&&bytes.length>lim;
     const doc={output:()=>new Blob([bytes],{type:'application/pdf'})};
     ready={name:fname+'-masked.pdf',blob:doc.output('blob')};
-    say('處理完成（原檔 '+Math.round(srcBuf.byteLength/1024)+' KB → 共 '+Math.round(bytes.length/1024)+' KB'+(keep.length?'，其中未遮蔽的頁面約 '+Math.round(baseB/1024)+' KB':'')+'）'+(over?(hopeless?'。未遮蔽的頁面原本就超過上限，所以遮蔽頁保持較清晰的畫質；要更小需先壓縮原檔':'。已降到最低畫質仍超過上限'):'')+'，正在儲存…',over);
+    say('【'+SN[sess]+'】處理完成（原檔 '+Math.round(srcBuf.byteLength/1024)+' KB → 共 '+Math.round(bytes.length/1024)+' KB'+(keep.length?'，其中未遮蔽的頁面約 '+Math.round(baseB/1024)+' KB':'')+'）'+(over?(hopeless?'。未遮蔽的頁面原本就超過上限，所以遮蔽頁保持較清晰的畫質；要更小需先壓縮原檔':'。已降到最低畫質仍超過上限'):'')+'，正在儲存…',over);
     try{const r=await deliver(ready.name,ready.blob);say(FB);$('again').hidden=false}
     catch(e){$('again').hidden=false;say((e&&e.code==='declined'?'已取消儲存。':'自動儲存失敗（'+((e&&(e.code||e.message))||e)+'）。')+'請按上方「儲存已處理的 PDF」。',!(e&&e.code==='declined'))}
   }catch(e){console.error(e);say(e&&e.code==='declined'?'已取消儲存。':'匯出失敗：'+((e&&(e.code||e.message))||e),!(e&&e.code==='declined'))}
@@ -218,30 +224,60 @@ function hit(r,n){
   if(!s||/^(all|全部)$/i.test(s))return true;
   return s.split(/[,，、]/).some(t=>{const m=t.match(/^(\d+)(?:[-~–](\d+))?$/);return m&&n>=+m[1]&&n<=+(m[2]||m[1])});
 }
+const SN={pre:'盤前',post:'盤後'},K_R=k=>'pdfmosaic:v2:rects:'+k,K_C='pdfmosaic:v2:cfg';
+let sets={pre:[],post:[]};
+const clone=a=>JSON.parse(JSON.stringify(a));
+const dirty=()=>JSON.stringify(rects)!==JSON.stringify(sets[sess]);
+const detect=n=>/盤後/.test(n)?'post':(/市場快訊|盤前/.test(n)?'pre':null);
+const radio=k=>document.querySelector('input[name=sess][value="'+k+'"]');
+function switchSess(k){
+  if(k===sess)return true;
+  if(editing&&dirty()&&!confirm('「'+SN[sess]+'」範本有尚未儲存的修改，切換後會捨棄。要繼續嗎？')){radio(sess).checked=true;return false}
+  sess=k;rects=clone(sets[k]);editing=!rects.length;radio(k).checked=true;draw();ui();
+  say('已切換到「'+SN[k]+'」範本（'+rects.length+' 個遮蔽區'+(editing?'，尚未設定，請框選遮蔽區後儲存':'，已鎖定')+'）。');
+  return true;
+}
+document.querySelectorAll('input[name=sess]').forEach(i=>i.onchange=e=>{switchSess(e.target.value)});
 async function handle(files){
   files=[...files].filter(f=>/pdf$/i.test(f.type||f.name));
   if(!files.length){say('請放入 PDF 檔案。',true);return}
-  const auto=$('auto').checked&&rects.length>0;
+  const auto=$('auto').checked;
   for(const f of (auto?files:[files[0]])){
-    if(!await open(f))break;
+    const k=detect(f.name);let note;
+    if(k){if(!switchSess(k))break;note='依檔名判斷為「'+SN[k]+'」。'}
+    else if(auto){say('無法從檔名判斷盤前／盤後，已略過：'+f.name+'（檔名需含「市場快訊」或「盤後快訊」）',true);continue}
+    else note='檔名無法判斷，沿用目前選擇的「'+SN[sess]+'」。';
+    if(auto&&!rects.length){say('「'+SN[sess]+'」範本還沒有遮蔽區，已略過：'+f.name,true);continue}
+    if(!await open(f,note))break;
     if(auto)await doExport();
   }
 }
-const KEY='pdfmosaic:tpl';
 function saveTpl(){
-  try{localStorage.setItem(KEY,JSON.stringify({rects,mode:mode(),size:$('size').value,q:$('q').value,all:$('all').checked,lim:$('lim').value,auto:$('auto').checked}));say('已儲存範本（'+rects.length+' 個遮蔽區）。下次開啟會自動載入。')}
-  catch(e){say('此環境無法儲存範本。',true)}
+  try{localStorage.setItem(K_R(sess),JSON.stringify(rects))}catch(e){say('此環境無法儲存範本。',true);return}
+  sets[sess]=clone(rects);editing=!rects.length;draw();ui();
+  say('已儲存「'+SN[sess]+'」範本（'+rects.length+' 個遮蔽區）'+(editing?'。':'並鎖定。'));
 }
+function saveCfg(){
+  try{localStorage.setItem(K_C,JSON.stringify({mode:mode(),size:$('size').value,q:$('q').value,all:$('all').checked,lim:$('lim').value,auto:$('auto').checked}))}catch(e){}
+}
+['size','q','all','lim','auto'].forEach(id=>$(id).addEventListener('change',saveCfg));
+document.querySelectorAll('input[name=mode]').forEach(i=>i.addEventListener('change',saveCfg));
 function loadTpl(){
   try{
-    const t=JSON.parse(localStorage.getItem(KEY));if(!t||!Array.isArray(t.rects))return;
-    rects=t.rects;$('size').value=t.size;if(t.q)$('q').value=t.q;$('all').checked=!!t.all;if(t.lim!=null){const L=t.lim>0&&t.lim<10?t.lim*1024:t.lim;$('lim').value=L;if($('lim').value!==String(L))$('lim').value='850'}
-    const m=document.querySelector('input[name=mode][value="'+t.mode+'"]');if(m)m.checked=true;
-    $('auto').checked=!!t.auto;ui();
-    say('已載入範本（'+rects.length+' 個遮蔽區）。丟入 PDF 即可套用'+(t.auto?'並自動匯出':'，確認後按「匯出 PDF」')+'。');
+    const c=JSON.parse(localStorage.getItem(K_C));
+    if(c){
+      if(c.size)$('size').value=c.size;if(c.q)$('q').value=c.q;$('all').checked=!!c.all;$('auto').checked=!!c.auto;
+      if(c.lim!=null){$('lim').value=c.lim;if($('lim').value!==String(c.lim))$('lim').value='800'}
+      const m=document.querySelector('input[name=mode][value="'+c.mode+'"]');if(m)m.checked=true;
+    }
   }catch(e){}
+  for(const k of ['pre','post']){try{const a=JSON.parse(localStorage.getItem(K_R(k)));if(Array.isArray(a))sets[k]=a}catch(e){}}
+  rects=clone(sets[sess]);editing=!rects.length;ui();
+  say('盤前 '+sets.pre.length+' 個、盤後 '+sets.post.length+' 個遮蔽區。丟入 PDF 會依檔名（市場快訊＝盤前、盤後快訊＝盤後）自動選範本。');
 }
 $('save').onclick=saveTpl;
+$('edit').onclick=()=>{editing=true;ui();say('「'+SN[sess]+'」範本編輯中。改完請按「儲存範本」。')};
+$('cancel').onclick=()=>{rects=clone(sets[sess]);editing=!rects.length;draw();ui();say('已取消編輯，還原為已儲存的「'+SN[sess]+'」範本。')};
 loadTpl();
 </script>
 </body>
